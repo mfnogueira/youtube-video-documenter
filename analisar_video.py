@@ -7,6 +7,14 @@ from main import extrair_frames_por_timestamps
 # Carrega variáveis de ambiente
 load_dotenv()
 
+def carregar_metadata(pasta_saida):
+    """Carrega metadados do vídeo se disponível."""
+    metadata_path = f'{pasta_saida}/metadata.json'
+    if os.path.exists(metadata_path):
+        with open(metadata_path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    return {}
+
 def analisar_transcricao_com_llm(transcricao_json_path, pasta_saida='conteudo_video'):
     """
     Analisa a transcrição usando GPT-4o-mini e gera um resumo em markdown.
@@ -132,7 +140,8 @@ IMPORTANTE: Retorne APENAS o JSON, sem texto adicional antes ou depois.
 
     # Gera o markdown
     print("\n📝 Gerando resumo em Markdown...")
-    markdown = gerar_markdown(analise, frames_dir)
+    metadata = carregar_metadata(pasta_saida)
+    markdown = gerar_markdown(analise, frames_dir, metadata)
 
     markdown_path = f'{pasta_saida}/resumo.md'
     with open(markdown_path, 'w', encoding='utf-8') as f:
@@ -143,53 +152,106 @@ IMPORTANTE: Retorne APENAS o JSON, sem texto adicional antes ou depois.
 
     return analise
 
-def gerar_markdown(analise, frames_dir):
-    """Gera o markdown estruturado com imagens dos frames"""
+def _slug(titulo):
+    """Gera slug para âncoras do TOC."""
+    import re
+    return re.sub(r'[^\w\s-]', '', titulo.lower()).strip().replace(' ', '-')
 
-    md = f"# {analise['titulo']}\n\n"
-    md += "## 📋 Visão Técnica\n\n"
+def gerar_markdown(analise, frames_dir, metadata=None):
+    """Gera o markdown estruturado com imagens dos frames."""
+    metadata = metadata or {}
+    url_base = metadata.get('url', '')
+
+    # --- YAML Frontmatter ---
+    md = "---\n"
+    md += f"titulo: \"{analise['titulo']}\"\n"
+    if metadata.get('canal'):
+        md += f"canal: \"{metadata['canal']}\"\n"
+    if url_base:
+        md += f"url: \"{url_base}\"\n"
+    if metadata.get('duracao'):
+        md += f"duracao: \"{metadata['duracao']}\"\n"
+    if metadata.get('data_processamento'):
+        md += f"data_processamento: \"{metadata['data_processamento']}\"\n"
+    md += "---\n\n"
+
+    # --- Título principal ---
+    md += f"# {analise['titulo']}\n\n"
+
+    # Linha de metadados legível
+    if metadata:
+        partes = []
+        if metadata.get('canal'):
+            partes.append(f"**Canal:** {metadata['canal']}")
+        if metadata.get('duracao'):
+            partes.append(f"**Duração:** {metadata['duracao']}")
+        if url_base:
+            partes.append(f"**[Assistir no YouTube]({url_base})**")
+        if partes:
+            md += " · ".join(partes) + "\n\n"
+
+    md += "---\n\n"
+
+    # --- Índice / TOC ---
+    md += "## Índice\n\n"
+    md += "- [Visão Técnica](#visão-técnica)\n"
+    md += "- [Conteúdo Técnico](#conteúdo-técnico)\n"
+    for i, secao in enumerate(analise['secoes']):
+        slug = _slug(f"{i+1} {secao['titulo']}")
+        md += f"  - [{i+1}. {secao['titulo']}](#{slug})\n"
+    md += "- [Resumo dos Conceitos Principais](#resumo-dos-conceitos-principais)\n\n"
+    md += "---\n\n"
+
+    # --- Visão Técnica ---
+    md += "## Visão Técnica\n\n"
     md += f"{analise['resumo_geral']}\n\n"
     md += "---\n\n"
-    md += "## 🔧 Conteúdo Técnico\n\n"
+
+    # --- Conteúdo Técnico ---
+    md += "## Conteúdo Técnico\n\n"
+
+    tipo_emoji = {
+        'tela_software': '💻',
+        'configuracao': '⚙️',
+        'dashboard': '📊',
+        'codigo': '👨‍💻',
+        'diagrama': '📈',
+        'exemplo_pratico': '🎯',
+        'boas_praticas': '✨'
+    }
 
     for i, secao in enumerate(analise['secoes']):
-        # Título da seção
         md += f"### {i+1}. {secao['titulo']}\n\n"
 
-        # Tipo de conteúdo e timestamp
-        tipo_emoji = {
-            'tela_software': '💻',
-            'configuracao': '⚙️',
-            'dashboard': '📊',
-            'codigo': '👨‍💻',
-            'diagrama': '📈',
-            'exemplo_pratico': '🎯',
-            'boas_praticas': '✨'
-        }
         tipo = secao.get('tipo_conteudo', 'exemplo_pratico')
         emoji = tipo_emoji.get(tipo, '📌')
 
         timestamp_inicio = int(secao['timestamp_inicio'])
         timestamp_fim = int(secao['timestamp_fim'])
-        md += f"{emoji} **Tipo:** {tipo.replace('_', ' ').title()} | "
-        md += f"**⏱️ Timestamp:** {timestamp_inicio // 60}:{timestamp_inicio % 60:02d} - {timestamp_fim // 60}:{timestamp_fim % 60:02d}\n\n"
+        timestamp_fmt = f"{timestamp_inicio // 60}:{timestamp_inicio % 60:02d} – {timestamp_fim // 60}:{timestamp_fim % 60:02d}"
+
+        # Link para o timestamp no YouTube
+        if url_base:
+            yt_link = f"[▶ {timestamp_fmt}]({url_base}&t={timestamp_inicio}s)"
+        else:
+            yt_link = f"⏱️ {timestamp_fmt}"
+
+        md += f"{emoji} **Tipo:** {tipo.replace('_', ' ').title()} | {yt_link}\n\n"
 
         # Frame
         frame_filename = f"frame_{secao['timestamp_frame']:.1f}s.jpg"
         md += f"![Frame em {secao['timestamp_frame']:.1f}s]({frames_dir}/{frame_filename})\n\n"
 
-        # Descrição
         md += f"{secao['descricao']}\n\n"
 
-        # Citação (se houver)
         if secao.get('citacao'):
             md += f"> 💬 *\"{secao['citacao']}\"*\n\n"
 
         md += "\n"
 
-    # Conclusão
+    # --- Conclusão ---
     md += "---\n\n"
-    md += "## 💡 Resumo dos Conceitos Principais\n\n"
+    md += "## Resumo dos Conceitos Principais\n\n"
     md += f"{analise['conclusao']}\n"
 
     return md

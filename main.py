@@ -66,7 +66,23 @@ def processar_youtube(url, pasta_saida='conteudo_video', extrair_todos_frames=Fa
 
     print("Baixando vídeo e convertendo áudio...")
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        ydl.extract_info(url, download=True)
+        info = ydl.extract_info(url, download=True)
+
+    # Salva metadados do vídeo para uso posterior
+    duracao_segundos = info.get('duration', 0)
+    duracao_fmt = f"{duracao_segundos // 3600:02d}:{(duracao_segundos % 3600) // 60:02d}:{duracao_segundos % 60:02d}" if duracao_segundos else "N/A"
+    metadata = {
+        'titulo': info.get('title', 'Sem título'),
+        'canal': info.get('uploader', 'Desconhecido'),
+        'url': info.get('webpage_url', url),
+        'duracao': duracao_fmt,
+        'duracao_segundos': duracao_segundos,
+        'data_processamento': __import__('datetime').date.today().isoformat(),
+    }
+    metadata_path = f'{pasta_saida}/metadata.json'
+    with open(metadata_path, 'w', encoding='utf-8') as f:
+        json.dump(metadata, f, ensure_ascii=False, indent=2)
+    print(f"✓ Metadados salvos: {metadata_path}")
 
     # Detecta o arquivo de vídeo baixado
     video_files = [f for f in os.listdir(pasta_saida) if f.startswith('video.') and f.endswith(('.mp4', '.webm', '.mkv'))]
