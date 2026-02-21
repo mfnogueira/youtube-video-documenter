@@ -1,0 +1,20 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Environment variables (contains API keys)
+.env
+
+# Conteúdo baixado dos vídeos
+conteudo_video/
+
+# Arquivos internos do projeto
+SPEC.md
+.claude/
